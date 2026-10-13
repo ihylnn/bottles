@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>容量比較與計量教學遊戲</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <!-- Tone.js for Web Audio Synthesis -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&display=swap');
+
+        body {
+            font-family: 'Zen Maru Gothic', sans-serif, system-ui;
+            background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 50%, #fef3c7 100%);
+            min-height: 100vh;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Glassmorphic card styling */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+        }
+
+        /* Water Stream Effect inside bottle target */
+        .water-stream-direct {
+            position: absolute;
+            width: 8px;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            border-radius: 4px;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 25;
+            transition: opacity 0.2s, height 0.3s;
+        }
+
+        .water-stream-direct.active {
+            opacity: 0.9;
+            animation: flow 0.15s linear infinite;
+        }
+
+        @keyframes flow {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 20px; }
+        }
+
+        /* Flying Animated Cup overlay for real-pos pouring */
+        #pouringCupOverlay {
+            position: fixed;
+            pointer-events: none;
+            z-index: 100;
+            transition: all 0.4s ease-out;
+            transform-origin: top right;
+        }
+
+        .cup-pouring-tilt {
+            transform: rotate(-55deg) translate(-15px, -10px) !important;
+        }
+
+        .liquid-layer {
+            transition: height 0.5s ease-out;
+            width: 100%;
+            border-top: 1px solid rgba(255, 255, 255, 0.4);
+        }
+
+        .drag-over {
+            scale: 1.03;
+            filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.5));
+        }
+
+        .float-idle {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-6px); }
+        }
+    </style>
+</head>
+<body class="p-3 md:p-6 text-slate-800 flex flex-col items-center justify-between min-h-screen">
+
+    <!-- Top Header & Teacher Toolbar -->
+    <header class="w-full max-w-5xl mb-4">
+        <div class="glass-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-400 to-indigo-500 flex items-center justify-center text-white text-2xl shadow-md">
+                    <i class="fa-solid fa-flask"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl md:text-2xl font-black text-slate-800 tracking-wide">容量比較與計量</h1>
+                    <p class="text-xs text-slate-500 font-bold">高瘦瓶與矮胖瓶的測量實驗室</p>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button onclick="toggleLabels()" id="toggleLabelBtn" class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 shadow-sm text-xs font-bold text-slate-700 hover:bg-slate-50 transition flex items-center gap-2">
+                    <i id="labelIcon" class="fa-solid fa-eye text-indigo-500"></i>
+                    <span id="labelText">隱藏數字刻度</span>
+                </button>
+                <button onclick="toggleAudio()" id="audioBtn" class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 shadow-sm text-xs font-bold text-slate-700 hover:bg-slate-50 transition flex items-center gap-2">
+                    <i id="audioIcon" class="fa-solid fa-volume-high text-emerald-500"></i>
+                    <span id="audioText">音效：開啟</span>
+                </button>
+                <button onclick="resetAll()" class="px-3.5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white shadow-md text-xs font-bold transition flex items-center gap-2">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>重新開始</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Interactive Area -->
+    <main class="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-5 items-start my-auto">
+
+        <!-- Left Column: Source Cup & Sequence Preview -->
+        <div class="lg:col-span-4 flex flex-col gap-4">
+            <div class="glass-card rounded-3xl p-5 text-center relative overflow-hidden flex flex-col items-center">
+                <div class="inline-block bg-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1 rounded-full mb-2">
+                    步驟 1：倒水準備
+                </div>
+
+                <h2 class="text-lg font-bold text-slate-800">小杯子（標準單位）</h2>
+                <p class="text-xs text-slate-500 mb-2">每一杯水量均相同，能填滿 1 個刻度</p>
+
+                <!-- Source Cup Interactive Station -->
+                <div class="relative my-2 py-2 flex justify-center items-center w-full min-h-[140px]">
+                    <div id="activeCup" 
+                         draggable="true" 
+                         ondragstart="handleDragStart(event)"
+                         ondragend="handleDragEnd(event)"
+                         class="float-idle cursor-grab active:cursor-grabbing relative flex flex-col items-center justify-end w-24 h-28 rounded-b-3xl border-4 border-slate-700 bg-white/50 shadow-xl overflow-hidden group z-30 transition-opacity">
+                        
+                        <div class="absolute top-0 w-full h-3.5 bg-slate-200 border-b-2 border-slate-400 rounded-t-sm z-20"></div>
+                        
+                        <div id="cupLiquid" class="w-full transition-all duration-300 rounded-b-2xl relative z-10 flex items-center justify-center" style="height: 85%; background-color: #ef4444;">
+                            <span id="cupColorName" class="text-white font-black text-xs drop-shadow">紅色 (第 1 杯)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Next Color Preview Sequence -->
+                <div class="flex items-center justify-center gap-2 mt-1">
+                    <span class="text-xs text-slate-500 font-semibold">倒水色彩順序：</span>
+                    <div id="colorIndicator" class="flex items-center gap-1.5 min-h-[16px]"></div>
+                </div>
+
+                <p class="text-[11px] text-slate-400 mt-3 font-semibold">💡 提示：按下方按鈕或拖曳小杯子到瓶子上空倒水</p>
+            </div>
+
+            <!-- Blackboard Question Prompt Card -->
+            <div class="glass-card rounded-3xl p-5 border-l-8 border-indigo-500 relative">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
+                        <i class="fa-solid fa-lightbulb mr-1"></i>課堂思考小提問
+                    </span>
+                    <span id="questionStep" class="text-xs font-bold text-slate-400">1 / 3</span>
+                </div>
+                <p id="questionText" class="text-sm font-bold text-slate-700 my-2 leading-relaxed min-h-[48px]">
+                    1. 看一看，高瘦瓶和矮胖瓶，你覺得哪一個可以裝比較多的水？
+                </p>
+                <div class="flex justify-between items-center mt-3 pt-2 border-t border-slate-200/60">
+                    <button onclick="prevQuestion()" class="text-xs font-bold text-slate-500 hover:text-indigo-600 px-2 py-1">
+                        <i class="fa-solid fa-chevron-left mr-1"></i>上一題
+                    </button>
+                    <button onclick="nextQuestion()" class="text-xs font-bold text-slate-500 hover:text-indigo-600 px-2 py-1">
+                        下一題<i class="fa-solid fa-chevron-right ml-1"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Bottle A (Tall/Thin) & Bottle B (Short/Fat) Display -->
+        <div class="lg:col-span-8 glass-card rounded-3xl p-5 md:p-7 flex flex-col md:flex-row items-center justify-around gap-6 min-h-[460px]">
+            
+            <!-- Bottle A: Tall & Thin (8 Cups) -->
+            <div id="zoneA" 
+                 ondragover="handleDragOver(event)" 
+                 ondragleave="handleDragLeave(event)" 
+                 ondrop="handleDrop(event, 'A')"
+                 class="flex flex-col items-center group relative transition-transform duration-300">
+                
+                <div class="text-center mb-2">
+                    <span class="bg-sky-100 text-sky-800 font-extrabold text-xs px-3 py-1 rounded-full">高瘦瓶 (瓶 A)</span>
+                    <div class="text-xs text-slate-500 mt-1 font-bold">
+                        已倒 <span id="countA" class="count-label text-base text-sky-600 font-black">0</span> / 8 杯
+                    </div>
+                </div>
+
+                <!-- Bottle A Body (8 Divisions) -->
+                <div id="bottleContainerA" class="w-28 md:w-32 h-[320px] relative rounded-b-3xl rounded-t-xl border-4 border-slate-700 bg-slate-50/50 backdrop-blur-sm flex flex-col justify-end overflow-hidden shadow-2xl transition-all">
+                    
+                    <div class="absolute -top-1 left-1/2 -translate-x-1/2 w-3/4 h-3 bg-slate-300 border-2 border-slate-600 rounded-t-md z-30"></div>
+
+                    <!-- Water Stream inside Bottle A Mouth -->
+                    <div id="directStreamA" class="water-stream-direct" style="height: 100%;"></div>
+
+                    <!-- Scale Lines (8 Equal Divisions) -->
+                    <div class="absolute inset-0 flex flex-col-reverse pointer-events-none z-20">
+                        <div class="h-[12.5%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">1</span></div>
+                        <div class="h-[12.5%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">2</span></div>
+                        <div class="h-[12.5%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">3</span></div>
+                        <div class="h-[12.5%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">4</span></div>
+                        <div class="h-[12.5%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">5</span></div>
+                        <div class="h-[12.5%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">6</span></div>
+                        <div class="h-[12.5%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">7</span></div>
+                        <div class="h-[12.5%] border-t-2 border-slate-700 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-sky-700 bg-amber-200/90 px-1 rounded tick-num">8</span></div>
+                    </div>
+
+                    <!-- Liquid Fill Column (Appends from bottom) -->
+                    <div id="liquidColumnA" class="w-full flex flex-col-reverse justify-start z-10 h-full"></div>
+
+                    <!-- Full Tag Badge -->
+                    <div id="fullTagA" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-sky-500 text-white font-black text-sm px-3 py-1 rounded-full shadow-lg border-2 border-white z-40 animate-pulse">
+                        裝滿了！(8杯)
+                    </div>
+                </div>
+
+                <!-- Controls for Bottle A -->
+                <div class="mt-4 flex flex-col gap-2 w-full">
+                    <button id="pourBtnA" onclick="pourToBottle('A')" class="px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-fill-drip"></i> 倒入高瘦瓶
+                    </button>
+                    <button onclick="clearBottle('A')" class="text-xs text-slate-400 hover:text-slate-600 font-semibold py-1">
+                        <i class="fa-solid fa-trash-can mr-1"></i>倒空瓶 A
+                    </button>
+                </div>
+            </div>
+
+            <div class="w-px h-64 bg-slate-200 hidden md:block"></div>
+
+            <!-- Bottle B: Short & Fat (7 Cups) -->
+            <div id="zoneB" 
+                 ondragover="handleDragOver(event)" 
+                 ondragleave="handleDragLeave(event)" 
+                 ondrop="handleDrop(event, 'B')"
+                 class="flex flex-col items-center group relative transition-transform duration-300">
+                
+                <div class="text-center mb-2">
+                    <span class="bg-emerald-100 text-emerald-800 font-extrabold text-xs px-3 py-1 rounded-full">矮胖瓶 (瓶 B)</span>
+                    <div class="text-xs text-slate-500 mt-1 font-bold">
+                        已倒 <span id="countB" class="count-label text-base text-emerald-600 font-black">0</span> / 7 杯
+                    </div>
+                </div>
+
+                <!-- Bottle B Body (7 Divisions) -->
+                <div id="bottleContainerB" class="w-44 md:w-48 h-[280px] relative rounded-b-3xl rounded-t-xl border-4 border-slate-700 bg-slate-50/50 backdrop-blur-sm flex flex-col justify-end overflow-hidden shadow-2xl transition-all">
+                    
+                    <div class="absolute -top-1 left-1/2 -translate-x-1/2 w-2/3 h-3 bg-slate-300 border-2 border-slate-600 rounded-t-md z-30"></div>
+
+                    <!-- Water Stream inside Bottle B Mouth -->
+                    <div id="directStreamB" class="water-stream-direct" style="height: 100%;"></div>
+
+                    <!-- Scale Lines (7 Equal Divisions) -->
+                    <div class="absolute inset-0 flex flex-col-reverse pointer-events-none z-20">
+                        <div class="h-[14.2857%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">1</span></div>
+                        <div class="h-[14.2857%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">2</span></div>
+                        <div class="h-[14.2857%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">3</span></div>
+                        <div class="h-[14.2857%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">4</span></div>
+                        <div class="h-[14.2857%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">5</span></div>
+                        <div class="h-[14.2857%] border-t-2 border-dashed border-slate-600/60 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-slate-700 bg-white/80 px-1 rounded tick-num">6</span></div>
+                        <div class="h-[14.2857%] border-t-2 border-slate-700 relative w-full"><span class="absolute left-1.5 -top-3 text-[11px] font-black text-emerald-700 bg-amber-200/90 px-1 rounded tick-num">7</span></div>
+                    </div>
+
+                    <!-- Liquid Fill Column (Appends from bottom) -->
+                    <div id="liquidColumnB" class="w-full flex flex-col-reverse justify-start z-10 h-full"></div>
+
+                    <!-- Full Tag Badge -->
+                    <div id="fullTagB" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-emerald-500 text-white font-black text-sm px-3 py-1 rounded-full shadow-lg border-2 border-white z-40 animate-pulse">
+                        裝滿了！(7杯)
+                    </div>
+                </div>
+
+                <!-- Controls for Bottle B -->
+                <div class="mt-4 flex flex-col gap-2 w-full">
+                    <button id="pourBtnB" onclick="pourToBottle('B')" class="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-fill-drip"></i> 倒入矮胖瓶
+                    </button>
+                    <button onclick="clearBottle('B')" class="text-xs text-slate-400 hover:text-slate-600 font-semibold py-1">
+                        <i class="fa-solid fa-trash-can mr-1"></i>倒空瓶 B
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Dynamic Flying Cup Container Overlay -->
+    <div id="pouringCupOverlay" class="hidden">
+        <div id="overlayCupInner" class="relative flex flex-col items-center justify-end w-20 h-24 rounded-b-3xl border-4 border-slate-700 bg-white/80 shadow-2xl overflow-hidden transition-transform duration-300">
+            <div class="absolute top-0 w-full h-3 bg-slate-200 border-b-2 border-slate-400 rounded-t-sm z-20"></div>
+            <div id="overlayLiquid" class="w-full transition-all duration-300 rounded-b-2xl relative z-10" style="height: 85%; background-color: #ef4444;"></div>
+        </div>
+    </div>
+
+    <!-- Victory / Discussion Modal -->
+    <div id="victoryModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-300">
+        <div id="modalCard" class="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full text-center shadow-2xl transform scale-90 transition-transform duration-300 border-4 border-amber-300">
+            <div class="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center text-4xl text-amber-500 mx-auto mb-4 shadow-inner">
+                <i class="fa-solid fa-trophy"></i>
+            </div>
+            <h3 class="text-2xl font-black text-slate-800 mb-2">太棒了！實驗完成！</h3>
+            <p class="text-sm text-slate-600 leading-relaxed mb-6 font-semibold">
+                高瘦瓶裝滿了 <span class="text-sky-600 font-black">8 杯</span>水，矮胖瓶裝滿了 <span class="text-emerald-600 font-black">7 杯</span>水！<br>
+                觀察看看，雖然高瘦瓶比較高，但因為矮胖瓶比較寬，所以兩者的容量其實非常接近喔！
+            </p>
+            <button onclick="closeModal()" class="w-full py-3 bg-gradient-to-r from-indigo-500 to-sky-500 hover:from-indigo-600 hover:to-sky-600 text-white font-black rounded-xl shadow-lg transition">
+                繼續課堂討論
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Sequence of rainbow colors
+        const COLORS = [
+            { name: "紅色", hex: "#ef4444" },
+            { name: "黃色", hex: "#eab308" },
+            { name: "綠色", hex: "#22c55e" },
+            { name: "藍色", hex: "#3b82f6" },
+            { name: "紫色", hex: "#a855f7" }
+        ];
+
+        let state = {
+            countA: 0,
+            maxA: 8,
+            countB: 0,
+            maxB: 7,
+            currentStep: 0,
+            showLabels: true,
+            audioEnabled: true,
+            isPouring: false,
+            questionIndex: 0
+        };
+
+        const questions = [
+            "1. 看一看，高瘦瓶和矮胖瓶，你覺得哪一個可以裝比較多的水？",
+            "2. 每倒一杯水，水面是不是剛好升到下一個刻度線？請數數看高瘦瓶和矮胖瓶分別是幾個刻度？",
+            "3. 高瘦瓶比較高，為什麼裝的杯數沒有比矮胖瓶多很多呢？（提示：觀察看看瓶子的寬度！）"
+        ];
+
+        let synth;
+
+        function initAudio() {
+            if (!synth && typeof Tone !== 'undefined') {
+                try {
+                    synth = new Tone.Synth().toDestination();
+                } catch(e) {}
+            }
+        }
+
+        function playPourSound() {
+            if (!state.audioEnabled) return;
+            try {
+                if (typeof Tone !== 'undefined' && Tone.context.state !== 'running') {
+                    Tone.start();
+                }
+                initAudio();
+                if (synth) {
+                    const now = Tone.now();
+                    synth.triggerAttackRelease("G4", "8n", now);
+                    synth.triggerAttackRelease("C5", "8n", now + 0.1);
+                }
+            } catch (e) {}
+        }
+
+        function playVictorySound() {
+            if (!state.audioEnabled) return;
+            try {
+                initAudio();
+                if (synth) {
+                    const now = Tone.now();
+                    synth.triggerAttackRelease("C4", "8n", now);
+                    synth.triggerAttackRelease("E4", "8n", now + 0.15);
+                    synth.triggerAttackRelease("G4", "8n", now + 0.3);
+                    synth.triggerAttackRelease("C5", "4n", now + 0.45);
+                }
+            } catch(e) {}
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            updateSourceCup();
+            updateColorIndicator();
+            updateQuestionCard();
+        });
+
+        function getCurrentColor() {
+            return COLORS[state.currentStep % COLORS.length];
+        }
+
+        function updateSourceCup() {
+            const color = getCurrentColor();
+            const cupLiquid = document.getElementById('cupLiquid');
+            const cupColorName = document.getElementById('cupColorName');
+
+            if (cupLiquid) cupLiquid.style.backgroundColor = color.hex;
+            if (cupColorName) cupColorName.textContent = `${color.name} (第 ${state.currentStep + 1} 杯)`;
+        }
+
+        function updateColorIndicator() {
+            const container = document.getElementById('colorIndicator');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            for (let i = 0; i < 5; i++) {
+                const colorIdx = (state.currentStep + i) % COLORS.length;
+                const dot = document.createElement('div');
+                dot.className = `w-3 h-3 rounded-full transition-all ${i === 0 ? 'scale-125 ring-2 ring-indigo-400 border border-white' : 'opacity-50'}`;
+                dot.style.backgroundColor = COLORS[colorIdx].hex;
+                container.appendChild(dot);
+            }
+        }
+
+        function pourToBottle(bottleKey) {
+            if (state.isPouring) return;
+
+            const isA = bottleKey === 'A';
+            const currentCount = isA ? state.countA : state.countB;
+            const maxCount = isA ? state.maxA : state.maxB;
+
+            if (currentCount >= maxCount) {
+                shakeBottle(bottleKey);
+                return;
+            }
+
+            state.isPouring = true;
+            disableButtons(true);
+
+            const sourceCup = document.getElementById('activeCup');
+            const sourceRect = sourceCup.getBoundingClientRect();
+            sourceCup.style.opacity = '0';
+
+            const bottleTarget = document.getElementById(isA ? 'bottleContainerA' : 'bottleContainerB');
+            const targetRect = bottleTarget.getBoundingClientRect();
+
+            // Position flying cup directly above the bottle mouth
+            const targetX = targetRect.left + (targetRect.width / 2) - 10;
+            const targetY = targetRect.top - 80;
+
+            const overlay = document.getElementById('pouringCupOverlay');
+            const overlayInner = document.getElementById('overlayCupInner');
+            const overlayLiquid = document.getElementById('overlayLiquid');
+
+            const currentColor = getCurrentColor();
+            overlayLiquid.style.backgroundColor = currentColor.hex;
+
+            overlay.style.transition = 'none';
+            overlay.style.left = `${sourceRect.left + 5}px`;
+            overlay.style.top = `${sourceRect.top + 5}px`;
+            overlay.classList.remove('hidden');
+            overlayInner.style.transform = 'rotate(0deg)';
+
+            // Fly to target bottle mouth
+            setTimeout(() => {
+                overlay.style.transition = 'all 0.4s cubic-bezier(0.25, 1, 0.5, 1)';
+                overlay.style.left = `${targetX}px`;
+                overlay.style.top = `${targetY}px`;
+            }, 20);
+
+            // Tilt and stream liquid
+            setTimeout(() => {
+                playPourSound();
+
+                overlayInner.classList.add('cup-pouring-tilt');
+
+                const stream = document.getElementById(isA ? 'directStreamA' : 'directStreamB');
+                stream.style.backgroundColor = currentColor.hex;
+                
+                setTimeout(() => {
+                    stream.classList.add('active');
+                }, 120);
+
+                setTimeout(() => {
+                    addExactLiquidLayer(bottleKey, currentColor);
+
+                    if (isA) state.countA++;
+                    else state.countB++;
+
+                    state.currentStep++;
+
+                    overlayLiquid.style.height = '0%';
+
+                    setTimeout(() => {
+                        stream.classList.remove('active');
+                    }, 200);
+
+                    // Reset cup position
+                    setTimeout(() => {
+                        overlayInner.classList.remove('cup-pouring-tilt');
+                        overlay.style.opacity = '0';
+
+                        setTimeout(() => {
+                            overlay.classList.add('hidden');
+                            overlay.style.opacity = '1';
+                            overlayLiquid.style.height = '85%';
+
+                            sourceCup.style.opacity = '1';
+
+                            updateSourceCup();
+                            updateColorIndicator();
+                            updateBottleUI(bottleKey);
+
+                            state.isPouring = false;
+                            disableButtons(false);
+
+                            checkVictory();
+                        }, 250);
+                    }, 300);
+
+                }, 380);
+
+            }, 420);
+        }
+
+        function addExactLiquidLayer(bottleKey, colorObj) {
+            const container = document.getElementById(bottleKey === 'A' ? 'liquidColumnA' : 'liquidColumnB');
+            const maxCount = bottleKey === 'A' ? state.maxA : state.maxB;
+            const layerHeightPct = (1 / maxCount) * 100;
+
+            const layer = document.createElement('div');
+            layer.className = 'liquid-layer flex items-center justify-center text-[11px] text-white font-bold drop-shadow-sm';
+            layer.style.height = '0%';
+            layer.style.backgroundColor = colorObj.hex;
+            
+            const currentLevel = (bottleKey === 'A' ? state.countA : state.countB) + 1;
+            layer.textContent = `刻度 ${currentLevel}`;
+
+            container.appendChild(layer);
+
+            setTimeout(() => {
+                layer.style.height = `${layerHeightPct}%`;
+            }, 20);
+        }
+
+        function updateBottleUI(bottleKey) {
+            const isA = bottleKey === 'A';
+            const count = isA ? state.countA : state.countB;
+            const max = isA ? state.maxA : state.maxB;
+
+            document.getElementById(isA ? 'countA' : 'countB').textContent = count;
+
+            if (count >= max) {
+                document.getElementById(isA ? 'fullTagA' : 'fullTagB').classList.remove('hidden');
+            }
+        }
+
+        function shakeBottle(bottleKey) {
+            const zone = document.getElementById(bottleKey === 'A' ? 'zoneA' : 'zoneB');
+            zone.classList.add('animate-bounce');
+            setTimeout(() => zone.classList.remove('animate-bounce'), 600);
+        }
+
+        function disableButtons(disabled) {
+            document.getElementById('pourBtnA').disabled = disabled;
+            document.getElementById('pourBtnB').disabled = disabled;
+        }
+
+        function clearBottle(bottleKey) {
+            if (state.isPouring) return;
+
+            if (bottleKey === 'A') {
+                state.countA = 0;
+                document.getElementById('liquidColumnA').innerHTML = '';
+                document.getElementById('fullTagA').classList.add('hidden');
+                document.getElementById('countA').textContent = '0';
+            } else {
+                state.countB = 0;
+                document.getElementById('liquidColumnB').innerHTML = '';
+                document.getElementById('fullTagB').classList.add('hidden');
+                document.getElementById('countB').textContent = '0';
+            }
+        }
+
+        function resetAll() {
+            if (state.isPouring) return;
+            state.countA = 0;
+            state.countB = 0;
+            state.currentStep = 0;
+
+            document.getElementById('liquidColumnA').innerHTML = '';
+            document.getElementById('countA').textContent = '0';
+            document.getElementById('fullTagA').classList.add('hidden');
+
+            document.getElementById('liquidColumnB').innerHTML = '';
+            document.getElementById('countB').textContent = '0';
+            document.getElementById('fullTagB').classList.add('hidden');
+
+            updateSourceCup();
+            updateColorIndicator();
+        }
+
+        function toggleLabels() {
+            state.showLabels = !state.showLabels;
+            const labelIcon = document.getElementById('labelIcon');
+            const labelText = document.getElementById('labelText');
+            const countLabels = document.querySelectorAll('.count-label');
+            const tickNums = document.querySelectorAll('.tick-num');
+
+            if (state.showLabels) {
+                labelIcon.className = 'fa-solid fa-eye text-indigo-500';
+                labelText.textContent = '隱藏數字刻度';
+                countLabels.forEach(el => el.style.opacity = '1');
+                tickNums.forEach(el => el.style.opacity = '1');
+            } else {
+                labelIcon.className = 'fa-solid fa-eye-slash text-slate-400';
+                labelText.textContent = '顯示數字刻度';
+                countLabels.forEach(el => el.style.opacity = '0');
+                tickNums.forEach(el => el.style.opacity = '0');
+            }
+        }
+
+        function toggleAudio() {
+            state.audioEnabled = !state.audioEnabled;
+            const audioIcon = document.getElementById('audioIcon');
+            const audioText = document.getElementById('audioText');
+
+            if (state.audioEnabled) {
+                audioIcon.className = 'fa-solid fa-volume-high text-emerald-500';
+                audioText.textContent = '音效：開啟';
+            } else {
+                audioIcon.className = 'fa-solid fa-volume-xmark text-slate-400';
+                audioText.textContent = '音效：關閉';
+            }
+        }
+
+        function updateQuestionCard() {
+            document.getElementById('questionText').textContent = questions[state.questionIndex];
+            document.getElementById('questionStep').textContent = `${state.questionIndex + 1} / ${questions.length}`;
+        }
+
+        function nextQuestion() {
+            state.questionIndex = (state.questionIndex + 1) % questions.length;
+            updateQuestionCard();
+        }
+
+        function prevQuestion() {
+            state.questionIndex = (state.questionIndex - 1 + questions.length) % questions.length;
+            updateQuestionCard();
+        }
+
+        function handleDragStart(e) {
+            e.dataTransfer.setData('text/plain', 'CUP');
+            e.dataTransfer.effectAllowed = 'move';
+            document.getElementById('activeCup').classList.add('opacity-50');
+        }
+
+        function handleDragEnd(e) {
+            document.getElementById('activeCup').classList.remove('opacity-50');
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            e.currentTarget.classList.add('drag-over');
+        }
+
+        function handleDragLeave(e) {
+            e.currentTarget.classList.remove('drag-over');
+        }
+
+        function handleDrop(e, bottleKey) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over');
+            pourToBottle(bottleKey);
+        }
+
+        function checkVictory() {
+            if (state.countA === state.maxA && state.countB === state.maxB) {
+                setTimeout(() => {
+                    playVictorySound();
+                    
+                    if (typeof confetti === 'function') {
+                        confetti({
+                            particleCount: 120,
+                            spread: 80,
+                            origin: { y: 0.6 }
+                        });
+                    }
+
+                    const modal = document.getElementById('victoryModal');
+                    const card = document.getElementById('modalCard');
+                    modal.classList.remove('pointer-events-none');
+                    modal.classList.remove('opacity-0');
+                    card.classList.remove('scale-90');
+                    card.classList.add('scale-100');
+                }, 300);
+            }
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('victoryModal');
+            const card = document.getElementById('modalCard');
+            modal.classList.add('opacity-0');
+            modal.classList.add('pointer-events-none');
+            card.classList.remove('scale-100');
+            card.classList.add('scale-90');
+        }
+    </script>
+</body>
+</html>
